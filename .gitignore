@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+next-env.d.ts
+
+# generated
+src/generated/
+
+# local data and uploads
+.data/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# testing
+coverage/
+test-results/
+playwright-report/
+
+# misc
+.DS_Store
+*.tsbuildinfo
+.vercel
