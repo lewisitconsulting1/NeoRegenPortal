@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Staff sign-in (tables required by Better Auth) ───────────────────
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ─── Who may use the admin area ───────────────────────────────────────
+
+enum StaffRole {
+  ADMIN
+  STAFF
+}
+
+/// Signing in with Google proves who someone is; a row here (active) is
+/// what lets them in. Emails in BOOTSTRAP_ADMIN_EMAILS are admins without
+/// a row, so the first admin can add everyone else.
+model StaffAccess {
+  email     String    @id
+  role      StaffRole @default(STAFF)
+  active    Boolean   @default(true)
+  addedBy   String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// ─── Catalog, lots and units ──────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  storage     String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lots        Lot[]
+}
+
+enum LotStatus {
+  DRAFT
+  PUBLISHED
+  ON_HOLD
+}
+
+model Lot {
+  id             String        @id @default(cuid())
+  lotNumber      String        @unique
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id])
+  expirationDate DateTime      @db.Date
+  status         LotStatus     @default(DRAFT)
+  holdReason     String?
+  publishedAt    DateTime?
+  publishedBy    String?
+  createdBy      String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  documents      LotDocument[]
+  units          Unit[]
+
+  @@index([productId])
+}
+
+enum DocumentType {
+  COA
+  STERILITY
+  SEROLOGY
+  IFU
+  OTHER
+}
+
+/// Documents are never deleted. Replacing one adds a new version that
+/// points at the old one (replacesId) and stamps the old one superseded.
+model LotDocument {
+  id           String        @id @default(cuid())
+  lotId        String
+  lot          Lot           @relation(fields: [lotId], references: [id])
+  type         DocumentType
+  title        String
+  fileName     String
+  contentType  String
+  size         Int
+  storageKey   String        @unique
+  version      Int           @default(1)
+  replacesId   String?       @unique
+  replaces     LotDocument?  @relation("DocumentVersions", fields: [replacesId], references: [id])
+  replacedBy   LotDocument?  @relation("DocumentVersions")
+  supersededAt DateTime?
+  uploadedBy   String
+  uploadedAt   DateTime      @default(now())
+  accessEvents AccessEvent[]
+
+  @@index([lotId])
+}
+
+/// One vial or patch. The access code in its QR is the only key a customer
+/// needs, so it is random (see src/lib/codes.ts), never derived from unitId.
+model Unit {
+  id           String             @id @default(cuid())
+  unitId       String             @unique
+  lotId        String
+  lot          Lot                @relation(fields: [lotId], references: [id])
+  accessCode   String             @unique
+  shippedTo    String?
+  voidedAt     DateTime?
+  voidReason   String?
+  voidedBy     String?
+  createdBy    String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  report       UtilizationReport?
+  accessEvents AccessEvent[]
+
+  @@index([lotId])
+}
+
+// ─── Customer reports ─────────────────────────────────────────────────
+
+enum Disposition {
+  IMPLANTED
+  OPENED_NOT_USED
+  DISCARDED
+  RETURNED
+}
+
+/// One per unit: the unique unitId is what makes a second submission fail,
+/// even when two arrive at once.
+model UtilizationReport {
+  id                  String      @id @default(cuid())
+  unitId              String      @unique
+  unit                Unit        @relation(fields: [unitId], references: [id])
+  facilityName        String
+  facilityCity        String
+  facilityState       String
+  submitterName       String
+  submitterTitle      String?
+  submitterEmail      String
+  submitterPhone      String?
+  physicianName       String?
+  dateOfUse           DateTime    @db.Date
+  disposition         Disposition
+  adverseEvent        Boolean
+  adverseEventDetails String?
+  comments            String?
+  submittedAt         DateTime    @default(now())
+  submitterIp         String?
+  submitterUserAgent  String?
+  reviewedAt          DateTime?
+  reviewedBy          String?
+
+  @@index([submittedAt])
+}
+
+// ─── Logs ─────────────────────────────────────────────────────────────
+
+enum AccessKind {
+  VIEW
+  DOWNLOAD
+  LOOKUP_FAILED
+  REPORT_SUBMITTED
+}
+
+/// What customers did, by IP. LOOKUP_FAILED rows also drive rate limiting.
+model AccessEvent {
+  id         String       @id @default(cuid())
+  kind       AccessKind
+  unitId     String?
+  unit       Unit?        @relation(fields: [unitId], references: [id])
+  documentId String?
+  document   LotDocument? @relation(fields: [documentId], references: [id])
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime     @default(now())
+
+  @@index([ip, kind, createdAt])
+  @@index([unitId])
+}
+
+/// What staff did. Written in the same transaction as the change it records.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorEmail String
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
