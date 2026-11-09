@@ -20,6 +20,7 @@ export default defineConfig({
       QA_EMAIL: "",
       RESEND_API_KEY: "",
       BLOB_READ_WRITE_TOKEN: "",
+      BLOB_STORE_ID: "",
     },
     // The database tests share one Postgres database and reset it per test.
     fileParallelism: false,

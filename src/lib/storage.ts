@@ -2,9 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { get, put } from "@vercel/blob";
 
-// Lot documents live in Vercel Blob as private files when
-// BLOB_READ_WRITE_TOKEN is set, and under .data/uploads otherwise (local
-// development). Either way they are only ever served through the portal's
+// Lot documents live in Vercel Blob as private files when a Blob store is
+// connected, and under .data/uploads otherwise (local development). Either way they are only ever served through the portal's
 // own download route, which checks the unit's access code first.
 
 // Local storage is for development only; the ignore comments keep the bundler
@@ -13,9 +12,11 @@ const LOCAL_DIR = path.resolve(
   /*turbopackIgnore: true*/ process.env.LOCAL_STORAGE_DIR ?? path.join(process.cwd(), ".data", "uploads"),
 );
 
+// A connected store sets BLOB_STORE_ID (the SDK then signs in with Vercel's
+// short-lived OIDC token) or, on older setups, BLOB_READ_WRITE_TOKEN.
 function blobConfigured(): boolean {
-  if (process.env.BLOB_READ_WRITE_TOKEN) return true;
-  if (process.env.VERCEL) throw new Error("BLOB_READ_WRITE_TOKEN is not set; connect a Blob store to the project.");
+  if (process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN) return true;
+  if (process.env.VERCEL) throw new Error("No Blob store is connected; connect one to the project under Storage.");
   return false;
 }
 
