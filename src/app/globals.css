@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Brand: black and the logo's gold. Gold text on white is too faint to
+     read, so text uses gold-dark; plain gold is for dark backgrounds. */
+  --color-ink: #0d0d0d;
+  --color-gold: #c19c60;
+  --color-gold-dark: #7d5f2c;
+  --color-gold-50: #faf6ef;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-gold-dark);
+    outline-offset: 2px;
+  }
+}
+
+@media print {
+  @page {
+    size: letter;
+    margin: 0;
+  }
+}
