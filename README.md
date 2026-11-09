@@ -45,8 +45,8 @@ npm run build
 ## Deploying on Vercel
 
 1. **Import** this repo into a Vercel team on the **Pro** plan (the free plan is non-commercial only).
-2. **Storage → Create → Neon (Postgres).** Connect it to the project; it sets `DATABASE_URL`.
-3. **Storage → Create → Blob.** Choose private access and connect it; it sets `BLOB_READ_WRITE_TOKEN`.
+2. **Storage → Create → Neon (Postgres).** Connect it to the project; it sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED`.
+3. **Storage → Create → Blob.** Choose private access and connect it; it sets `BLOB_STORE_ID`.
 4. **Google sign-in.** In Google Cloud Console → APIs & Services:
    - OAuth consent screen: User type **Internal**, so only NeoRegen Workspace accounts can use it.
    - Credentials → Create OAuth client ID → Web application. Authorized redirect URI: `https://verify.neoregenlab.com/api/auth/callback/google`.
