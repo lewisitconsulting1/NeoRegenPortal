@@ -51,9 +51,9 @@ npm run build
    - OAuth consent screen: User type **Internal**, so only NeoRegen Workspace accounts can use it.
    - Credentials → Create OAuth client ID → Web application. Authorized redirect URI: `https://verify.neoregenlab.com/api/auth/callback/google`.
 5. **Environment variables** (Settings → Environment Variables), from `.env.example`:
-   `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `PUBLIC_BASE_URL` (both `https://verify.neoregenlab.com`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STAFF_EMAIL_DOMAIN`, `BOOTSTRAP_ADMIN_EMAILS`, `QA_EMAIL`, `SUPPORT_EMAIL`, `RESEND_API_KEY`, `EMAIL_FROM`. Leave `ALLOW_DEV_LOGIN` unset.
+   `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `PUBLIC_BASE_URL` (both `https://verify.neoregenlab.com`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STAFF_EMAIL_DOMAIN`, `BOOTSTRAP_ADMIN_EMAILS`, `QA_EMAIL`, `SUPPORT_EMAIL`, and the email settings from step 7. Leave `ALLOW_DEV_LOGIN` unset.
 6. **Domain.** Vercel → Settings → Domains → add `verify.neoregenlab.com`. In Hostinger's DNS for neoregenlab.com, add the CNAME record Vercel shows.
-7. **Email.** In Resend, add and verify neoregenlab.com (it gives DNS records to add at Hostinger), then create an API key.
+7. **Email** through Google Workspace, like the tissue tracker. On the sending account (2-Step Verification on), create an App Password at myaccount.google.com → Security → App passwords. Set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER` (the account), `SMTP_PASS` (the App Password, Sensitive) and `EMAIL_FROM` (e.g. `NeoRegen <that account>`). Resend (`RESEND_API_KEY`) also works if you'd rather not use a mailbox.
 8. **Deploy.** The `vercel-build` script applies database migrations, then builds.
 
 Set `PUBLIC_BASE_URL` to the final domain before printing any cards: it is printed into every QR code.
