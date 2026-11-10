@@ -19,6 +19,7 @@ export default defineConfig({
       PUBLIC_BASE_URL: "https://verify.example.test",
       QA_EMAIL: "",
       RESEND_API_KEY: "",
+      SMTP_HOST: "",
       BLOB_READ_WRITE_TOKEN: "",
       BLOB_STORE_ID: "",
     },
