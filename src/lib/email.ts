@@ -5,11 +5,14 @@ import nodemailer, { type Transporter } from "nodemailer";
 // through Resend's HTTP API when RESEND_API_KEY is set. With neither, the
 // message is logged instead, so local development needs no mail account.
 
+export type Attachment = { filename: string; content: Uint8Array; contentType: string };
+
 export type Mail = {
   to: string[];
   subject: string;
   text: string;
   replyTo?: string;
+  attachments?: Attachment[];
 };
 
 let transport: Transporter | undefined;
@@ -36,7 +39,18 @@ export async function sendEmail(mail: Mail): Promise<void> {
     // Gmail sends as the signed-in account (or one of its "Send mail as"
     // aliases) whatever From says, so From defaults to that account.
     const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
-    await smtp.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, replyTo: mail.replyTo });
+    await smtp.sendMail({
+      from,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      replyTo: mail.replyTo,
+      attachments: mail.attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content),
+        contentType: a.contentType,
+      })),
+    });
     return;
   }
 
@@ -55,6 +69,10 @@ export async function sendEmail(mail: Mail): Promise<void> {
       subject: mail.subject,
       text: mail.text,
       reply_to: mail.replyTo,
+      attachments: mail.attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content).toString("base64"),
+      })),
     }),
   });
   if (!response.ok) {

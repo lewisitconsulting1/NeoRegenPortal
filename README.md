@@ -16,7 +16,7 @@ It is standalone: nothing connects to the tissue tracker on the lab Mac mini. St
 
 - **Lots:** create (draft), upload documents, publish, put on hold. Replacing a document adds a new version; the old one is kept.
 - **Units:** add by range or pasted list, each with its own random code. Print QR cards on Avery 5160 labels. Void a unit printed in error.
-- **Reports:** list, search, mark reviewed, export CSV. Adverse events are flagged and emailed to QA.
+- **Reports:** list, search, mark reviewed, export CSV, download each as a PDF. The receipt and the QA notice carry the same PDF; adverse events are flagged.
 - **Users** (admins): who can sign in, and as Admin or Staff. **Audit log:** every staff change.
 
 Nothing is deleted. Every staff change writes an audit entry in the same transaction. Customer page views, downloads and failed lookups are logged by IP, and failed lookups are rate-limited (20 per 15 minutes per IP).
@@ -69,6 +69,5 @@ Set `PUBLIC_BASE_URL` to the final domain before printing any cards: it is print
 ## Not built yet
 
 - Uploads larger than 4 MB (Vercel's request limit). Direct uploads to Blob from the browser would lift it.
-- PDF copy of the report in the receipt email (the receipt is plain text for now).
 - Staff corrections to a submitted report, with a reason and the original kept.
 - Matching the report fields to the paper tissue utilization form.
