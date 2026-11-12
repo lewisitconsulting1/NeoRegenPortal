@@ -40,15 +40,20 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           title={`Report for ${unit.unitId}`}
           subtitle={`Submitted ${formatDateTime(report.submittedAt)}`}
           actions={
-            report.reviewedAt ? (
-              <Badge tone="green">
-                Reviewed {formatDateTime(report.reviewedAt)} by {report.reviewedBy}
-              </Badge>
-            ) : (
-              <ActionForm action={markReviewedAction.bind(null, report.id)} className="flex items-center gap-3">
-                <SubmitButton className={button.primary}>Mark reviewed</SubmitButton>
-              </ActionForm>
-            )
+            <>
+              <a href={`/admin/reports/${report.id}/pdf`} className={button.secondary}>
+                Download PDF
+              </a>
+              {report.reviewedAt ? (
+                <Badge tone="green">
+                  Reviewed {formatDateTime(report.reviewedAt)} by {report.reviewedBy}
+                </Badge>
+              ) : (
+                <ActionForm action={markReviewedAction.bind(null, report.id)} className="flex items-center gap-3">
+                  <SubmitButton className={button.primary}>Mark reviewed</SubmitButton>
+                </ActionForm>
+              )}
+            </>
           }
         />
       </div>

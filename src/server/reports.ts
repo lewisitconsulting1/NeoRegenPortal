@@ -6,6 +6,7 @@ import { formatDate, formatDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { DISPOSITION_LABELS } from "@/lib/labels";
+import { reportPdf, reportPdfFileName } from "@/server/report-pdf";
 import { fail, type Result } from "@/server/result";
 
 export async function markReviewed(actor: string, reportId: string): Promise<Result> {
@@ -50,6 +51,10 @@ export function reportWhere(filter: ReportFilter): Prisma.UtilizationReportWhere
 const withUnit = { unit: { include: { lot: { include: { product: true } } } } } as const;
 
 export type ReportWithUnit = Prisma.UtilizationReportGetPayload<{ include: typeof withUnit }>;
+
+export function findReport(id: string): Promise<ReportWithUnit | null> {
+  return db.utilizationReport.findUnique({ where: { id }, include: withUnit });
+}
 
 export function listReports(filter: ReportFilter, take?: number): Promise<ReportWithUnit[]> {
   return db.utilizationReport.findMany({
@@ -105,11 +110,14 @@ function summary(r: ReportWithUnit): string {
     .join("\n");
 }
 
-/** A receipt to the submitter and a notice to QA. Failures are logged, not thrown. */
+/** A receipt to the submitter and a notice to QA, each with the PDF. Failures are logged, not thrown. */
 export async function sendReportEmails(reportId: string): Promise<void> {
-  const report = await db.utilizationReport.findUnique({ where: { id: reportId }, include: withUnit });
+  const report = await findReport(reportId);
   if (!report) return;
   const body = summary(report);
+  const attachments = [
+    { filename: reportPdfFileName(report), content: await reportPdf(report), contentType: "application/pdf" },
+  ];
   const unitPage = `${config.publicBaseUrl}/u/${formatAccessCode(report.unit.accessCode)}`;
   const adminPage = `${config.publicBaseUrl}/admin/reports/${report.id}`;
 
@@ -117,14 +125,16 @@ export async function sendReportEmails(reportId: string): Promise<void> {
     sendEmail({
       to: [report.submitterEmail],
       subject: `NeoRegen utilization report received: ${report.unit.unitId}`,
-      text: `Thank you. NeoRegen received your tissue utilization report.\n\n${body}\n\nUnit page: ${unitPage}\n`,
+      text: `Thank you. NeoRegen received your tissue utilization report. A PDF copy is attached.\n\n${body}\n\nUnit page: ${unitPage}\n`,
       replyTo: config.qaEmails[0],
+      attachments,
     }),
     sendEmail({
       to: config.qaEmails,
       subject: `${report.adverseEvent ? "[ADVERSE EVENT] " : ""}Utilization report: ${report.unit.unitId}`,
       text: `${report.adverseEvent ? "This report flags an adverse event. Start complaint handling today.\n\n" : ""}${body}\n\nReview: ${adminPage}\n`,
       replyTo: report.submitterEmail,
+      attachments,
     }),
   ];
   for (const result of await Promise.allSettled(sends)) {
