@@ -46,7 +46,7 @@ npm run build
 
 1. **Import** this repo into a Vercel team on the **Pro** plan (the free plan is non-commercial only).
 2. **Storage → Create → Neon (Postgres).** Connect it to the project; it sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED`.
-3. **Storage → Create → Blob.** Choose private access and connect it; it sets `BLOB_STORE_ID`.
+3. **Storage → Create → Blob.** Choose private access and connect it; it sets `BLOB_STORE_ID` and `BLOB_WEBHOOK_PUBLIC_KEY`. With both set, documents over 4 MB (up to 50 MB) go from the browser straight to the store.
 4. **Google sign-in.** In Google Cloud Console → APIs & Services:
    - OAuth consent screen: User type **Internal**, so only NeoRegen Workspace accounts can use it.
    - Credentials → Create OAuth client ID → Web application. Authorized redirect URI: `https://verify.neoregenlab.com/api/auth/callback/google`.
@@ -68,7 +68,6 @@ Set `PUBLIC_BASE_URL` to the final domain before printing any cards: it is print
 
 ## Not built yet
 
-- Uploads larger than 4 MB (Vercel's request limit). Direct uploads to Blob from the browser would lift it.
 - PDF copy of the report in the receipt email (the receipt is plain text for now).
 - Staff corrections to a submitted report, with a reason and the original kept.
 - Matching the report fields to the paper tissue utilization form.

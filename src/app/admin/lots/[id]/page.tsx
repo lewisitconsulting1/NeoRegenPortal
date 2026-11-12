@@ -8,18 +8,12 @@ import { formatDate, formatDateTime, todayUtc } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { DOCUMENT_TYPE_LABELS } from "@/lib/labels";
 import { requireStaff } from "@/lib/staff";
-import {
-  addDocumentAction,
-  holdLotAction,
-  publishLotAction,
-  releaseHoldAction,
-  replaceDocumentAction,
-} from "../../actions";
+import { directUploadsEnabled } from "@/lib/storage";
+import { holdLotAction, publishLotAction, releaseHoldAction } from "../../actions";
 import { LotStatusBadge } from "../status-badge";
+import { AddDocumentForm, ReplaceDocumentForm } from "./document-forms";
 
 export const metadata: Metadata = { title: "Lot" };
-
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg";
 
 export default async function LotPage({ params }: { params: Promise<{ id: string }> }) {
   await requireStaff();
@@ -35,6 +29,8 @@ export default async function LotPage({ params }: { params: Promise<{ id: string
     db.unit.count({ where: { lotId: id, report: { isNot: null } } }),
     db.unit.count({ where: { lotId: id, voidedAt: { not: null } } }),
   ]);
+  const directUploads = directUploadsEnabled();
+  const documentTypes = Object.values(DocumentType).map((t) => ({ value: t, label: DOCUMENT_TYPE_LABELS[t] }));
   const current = lot.documents.filter((d) => !d.supersededAt);
   const earlier = lot.documents.filter((d) => d.supersededAt);
 
@@ -95,17 +91,7 @@ export default async function LotPage({ params }: { params: Promise<{ id: string
                         <td className={`${table.td} w-64`}>
                           <details>
                             <summary className="cursor-pointer text-sm font-medium text-gold-dark">Replace</summary>
-                            <ActionForm
-                              action={replaceDocumentAction.bind(null, doc.id, lot.id)}
-                              resetOnSuccess
-                              className="mt-3 space-y-3"
-                            >
-                              <input name="file" type="file" required accept={ACCEPT} className="block w-full text-xs" aria-label="New version" />
-                              <input name="reason" required placeholder="Reason for the new version" className={input} aria-label="Reason" />
-                              <SubmitButton className={button.secondary} pendingText="Uploading…">
-                                Upload new version
-                              </SubmitButton>
-                            </ActionForm>
+                            <ReplaceDocumentForm documentId={doc.id} lotId={lot.id} directUploads={directUploads} />
                           </details>
                         </td>
                       </tr>
@@ -137,33 +123,7 @@ export default async function LotPage({ params }: { params: Promise<{ id: string
 
           <Card>
             <h2 className="mb-4 text-base font-semibold text-ink">Upload a document</h2>
-            <ActionForm action={addDocumentAction.bind(null, lot.id)} resetOnSuccess className="grid gap-4 sm:grid-cols-2">
-              <Field label="Type" name="type" required>
-                <select id="type" name="type" required defaultValue="" className={input}>
-                  <option value="" disabled>
-                    Choose a type
-                  </option>
-                  {Object.values(DocumentType).map((t) => (
-                    <option key={t} value={t}>
-                      {DOCUMENT_TYPE_LABELS[t]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Title customers see" name="title" required>
-                <input id="title" name="title" required className={input} placeholder="Certificate of Analysis" />
-              </Field>
-              <div className="sm:col-span-2">
-                <Field label="File" name="file" required hint="PDF, PNG or JPEG, up to 4 MB.">
-                  <input id="file" name="file" type="file" required accept={ACCEPT} className="block w-full text-sm" />
-                </Field>
-              </div>
-              <div className="sm:col-span-2">
-                <SubmitButton className={button.primary} pendingText="Uploading…">
-                  Upload
-                </SubmitButton>
-              </div>
-            </ActionForm>
+            <AddDocumentForm lotId={lot.id} directUploads={directUploads} types={documentTypes} />
           </Card>
         </div>
 

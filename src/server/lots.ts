@@ -4,7 +4,15 @@ import { DocumentType } from "@/generated/prisma/enums";
 import { audit } from "@/lib/audit";
 import { parseDateOnly } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { saveFile } from "@/lib/storage";
+import {
+  DIRECT_UPLOAD_LIMIT,
+  documentFileProblem,
+  documentStorageKey,
+  fileNameFromKey,
+  safeFileName,
+  SERVER_UPLOAD_LIMIT,
+} from "@/lib/files";
+import { saveFile, statFile } from "@/lib/storage";
 import { normalizeLotNumber } from "@/lib/units";
 import { fail, isUniqueViolation, type Result } from "@/server/result";
 
@@ -78,32 +86,35 @@ export async function releaseHold(actor: string, lotId: string, reason: string):
 
 // ─── Documents ────────────────────────────────────────────────────────
 
-// Vercel functions accept request bodies up to 4.5 MB, upload included.
-export const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
-const ALLOWED_TYPES: Record<string, string> = {
-  "application/pdf": "pdf",
-  "image/png": "png",
-  "image/jpeg": "jpg",
-};
-
 export type UploadedFile = { name: string; type: string; bytes: Buffer };
+type StoredFile = { storageKey: string; fileName: string; contentType: string; size: number };
 
-function checkFile(file: UploadedFile | null): string | null {
-  if (!file || file.bytes.length === 0) return "Choose a file to upload.";
-  if (!ALLOWED_TYPES[file.type]) return "Upload a PDF, PNG or JPEG file.";
-  if (file.bytes.length > MAX_DOCUMENT_BYTES) return "Files can be at most 4 MB.";
-  return null;
+/** A file sent through a server action: checked, then stored under a fresh key. */
+async function storeUpload(lotId: string, file: UploadedFile | null): Promise<StoredFile | string> {
+  const problem = documentFileProblem(file && { size: file.bytes.length, type: file.type }, SERVER_UPLOAD_LIMIT);
+  if (problem || !file) return problem ?? "Choose a file to upload.";
+  const fileName = safeFileName(file.name, file.type);
+  const storageKey = documentStorageKey(lotId, fileName, randomUUID());
+  // Stored before the row exists: a failed write leaves an unreferenced file,
+  // never a row pointing at a file that isn't there.
+  await saveFile(storageKey, file.bytes, file.type);
+  return { storageKey, fileName, contentType: file.type, size: file.bytes.length };
 }
 
-/** Keeps a name safe for headers and storage paths without losing its gist. */
-export function safeFileName(name: string, type: string): string {
-  const base = name
-    .replace(/\.[^.]*$/, "")
-    .replace(/[^A-Za-z0-9._ -]+/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 80);
-  return `${base || "document"}.${ALLOWED_TYPES[type]}`;
+/**
+ * A large file the browser already sent straight to storage. Nothing about it
+ * is taken on trust: the key must be this lot's, and the size and type come
+ * from storage itself.
+ */
+async function confirmDirectUpload(lotId: string, storageKey: string): Promise<StoredFile | string> {
+  const fileName = fileNameFromKey(storageKey, lotId);
+  if (!fileName) return "That upload doesn't belong to this lot.";
+  const stored = await statFile(storageKey);
+  if (!stored) return "The upload didn't arrive. Try again.";
+  const problem = documentFileProblem({ size: stored.size, type: stored.contentType }, DIRECT_UPLOAD_LIMIT);
+  if (problem) return problem;
+  if (await db.lotDocument.findUnique({ where: { storageKey } })) return "That file is already recorded.";
+  return { storageKey, fileName, contentType: stored.contentType, size: stored.size };
 }
 
 const documentSchema = z.object({
@@ -111,37 +122,42 @@ const documentSchema = z.object({
   title: z.string().trim().min(1, "Give the document a title.").max(200),
 });
 
+type NewDocument = { type: string; title: string };
+
 export async function addDocument(
   actor: string,
   lotId: string,
-  input: { type: string; title: string },
+  input: NewDocument,
   file: UploadedFile | null,
+): Promise<Result<{ id: string }>> {
+  return addWith(actor, lotId, input, () => storeUpload(lotId, file));
+}
+
+export async function addUploadedDocument(
+  actor: string,
+  lotId: string,
+  input: NewDocument,
+  storageKey: string,
+): Promise<Result<{ id: string }>> {
+  return addWith(actor, lotId, input, () => confirmDirectUpload(lotId, storageKey));
+}
+
+async function addWith(
+  actor: string,
+  lotId: string,
+  input: NewDocument,
+  getFile: () => Promise<StoredFile | string>,
 ): Promise<Result<{ id: string }>> {
   const parsed = documentSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const fileError = checkFile(file);
-  if (fileError || !file) return fail(fileError ?? "Choose a file to upload.");
   const lot = await db.lot.findUnique({ where: { id: lotId } });
   if (!lot) return fail("Lot not found.");
-
-  const fileName = safeFileName(file.name, file.type);
-  const storageKey = `lots/${lot.id}/${randomUUID()}-${fileName}`;
-  // Stored before the row exists: a failed write leaves an unreferenced file,
-  // never a row pointing at a file that isn't there.
-  await saveFile(storageKey, file.bytes, file.type);
+  const stored = await getFile();
+  if (typeof stored === "string") return fail(stored);
 
   const document = await db.$transaction(async (tx) => {
     const created = await tx.lotDocument.create({
-      data: {
-        lotId,
-        type: parsed.data.type,
-        title: parsed.data.title,
-        fileName,
-        contentType: file.type,
-        size: file.bytes.length,
-        storageKey,
-        uploadedBy: actor,
-      },
+      data: { lotId, type: parsed.data.type, title: parsed.data.title, ...stored, uploadedBy: actor },
     });
     await audit(tx, { actor, action: "document.add", entityType: "LotDocument", entityId: created.id, after: created });
     return created;
@@ -156,17 +172,31 @@ export async function replaceDocument(
   reason: string,
   file: UploadedFile | null,
 ): Promise<Result<{ id: string }>> {
+  return replaceWith(actor, documentId, reason, (lotId) => storeUpload(lotId, file));
+}
+
+export async function replaceWithUploadedDocument(
+  actor: string,
+  documentId: string,
+  reason: string,
+  storageKey: string,
+): Promise<Result<{ id: string }>> {
+  return replaceWith(actor, documentId, reason, (lotId) => confirmDirectUpload(lotId, storageKey));
+}
+
+async function replaceWith(
+  actor: string,
+  documentId: string,
+  reason: string,
+  getFile: (lotId: string) => Promise<StoredFile | string>,
+): Promise<Result<{ id: string }>> {
   const trimmed = reason.trim();
   if (!trimmed) return fail("Give a reason for replacing the document.");
-  const fileError = checkFile(file);
-  if (fileError || !file) return fail(fileError ?? "Choose a file to upload.");
   const old = await db.lotDocument.findUnique({ where: { id: documentId } });
   if (!old) return fail("Document not found.");
   if (old.supersededAt) return fail("This version was already replaced. Replace the current version instead.");
-
-  const fileName = safeFileName(file.name, file.type);
-  const storageKey = `lots/${old.lotId}/${randomUUID()}-${fileName}`;
-  await saveFile(storageKey, file.bytes, file.type);
+  const stored = await getFile(old.lotId);
+  if (typeof stored === "string") return fail(stored);
 
   try {
     const created = await db.$transaction(async (tx) => {
@@ -176,10 +206,7 @@ export async function replaceDocument(
           lotId: old.lotId,
           type: old.type,
           title: old.title,
-          fileName,
-          contentType: file.type,
-          size: file.bytes.length,
-          storageKey,
+          ...stored,
           version: old.version + 1,
           replacesId: old.id,
           uploadedBy: actor,

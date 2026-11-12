@@ -4,7 +4,18 @@ import { parseReport } from "@/lib/report-form";
 import { staffRoleFor } from "@/lib/staff-access";
 import { unitIdsFromRange } from "@/lib/units";
 import { findDownloadableDocument, findUnitByCode, submitReport } from "@/server/customer";
-import { addDocument, createLot, holdLot, MAX_DOCUMENT_BYTES, publishLot, releaseHold, replaceDocument } from "@/server/lots";
+import { SERVER_UPLOAD_LIMIT } from "@/lib/files";
+import { saveFile } from "@/lib/storage";
+import {
+  addDocument,
+  addUploadedDocument,
+  createLot,
+  holdLot,
+  publishLot,
+  releaseHold,
+  replaceDocument,
+  replaceWithUploadedDocument,
+} from "@/server/lots";
 import { createProduct } from "@/server/products";
 import { listReports, markReviewed, reportsCsv } from "@/server/reports";
 import { grantAccess, revokeAccess } from "@/server/staff-admin";
@@ -73,7 +84,7 @@ describe("lots", () => {
     const { lotId } = await lotWithUnits(1);
     const exe = { name: "x.exe", type: "application/x-msdownload", bytes: Buffer.from("MZ") };
     expect(await addDocument(actor, lotId, { type: "COA", title: "CoA" }, exe)).toEqual({ ok: false, error: expect.stringContaining("PDF") });
-    const big = { name: "big.pdf", type: "application/pdf", bytes: Buffer.alloc(MAX_DOCUMENT_BYTES + 1) };
+    const big = { name: "big.pdf", type: "application/pdf", bytes: Buffer.alloc(SERVER_UPLOAD_LIMIT + 1) };
     expect(await addDocument(actor, lotId, { type: "COA", title: "CoA" }, big)).toEqual({ ok: false, error: expect.stringContaining("4 MB") });
   });
 });
@@ -96,6 +107,44 @@ describe("documents", () => {
     const code = units[0].accessCode;
     expect(await findDownloadableDocument(code, first.id)).toBeNull();
     expect((await findDownloadableDocument(code, second.id))?.document.fileName).toBe("v2.pdf");
+  });
+});
+
+describe("documents the browser sent straight to storage", () => {
+  const uuid = "123e4567-e89b-42d3-a456-426614174000";
+  const coa = { type: "COA", title: "Certificate of Analysis" };
+
+  it("are recorded only once storage confirms them, and only for their own lot", async () => {
+    const { lotId } = await lotWithUnits(1);
+    const key = `lots/${lotId}/${uuid}-big-report.pdf`;
+    expect(await addUploadedDocument(actor, lotId, coa, key)).toEqual({ ok: false, error: expect.stringContaining("didn't arrive") });
+
+    const size = SERVER_UPLOAD_LIMIT + 1024;
+    await saveFile(key, Buffer.alloc(size), "application/pdf");
+    expect((await addUploadedDocument(actor, lotId, coa, key)).ok).toBe(true);
+    const doc = await db.lotDocument.findFirstOrThrow();
+    expect([doc.fileName, doc.size, doc.contentType, doc.storageKey]).toEqual(["big-report.pdf", size, "application/pdf", key]);
+
+    expect(await addUploadedDocument(actor, lotId, coa, key)).toEqual({ ok: false, error: "That file is already recorded." });
+    for (const other of [`lots/clotherlot/${uuid}-big-report.pdf`, `lots/${lotId}/../${uuid}-big-report.pdf`, `lots/${lotId}/big-report.pdf`]) {
+      expect(await addUploadedDocument(actor, lotId, coa, other)).toEqual({ ok: false, error: expect.stringContaining("doesn't belong") });
+    }
+  });
+
+  it("replace a document as its next version", async () => {
+    const { lotId } = await lotWithUnits(1);
+    const first = await addDocument(actor, lotId, coa, pdf("v1.pdf"));
+    if (!first.ok) throw new Error(first.error);
+    const key = `lots/${lotId}/${uuid}-v2-large.pdf`;
+    await saveFile(key, Buffer.alloc(SERVER_UPLOAD_LIMIT + 1), "application/pdf");
+
+    const second = await replaceWithUploadedDocument(actor, first.id, "Full lab report", key);
+    expect(second.ok).toBe(true);
+    const versions = await db.lotDocument.findMany({ orderBy: { version: "asc" } });
+    expect(versions.map((d) => [d.version, d.fileName, d.supersededAt !== null])).toEqual([
+      [1, "v1.pdf", true],
+      [2, "v2-large.pdf", false],
+    ]);
   });
 });
 

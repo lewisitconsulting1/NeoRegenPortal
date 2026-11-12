@@ -6,7 +6,17 @@ import type { ActionState } from "@/components/action-form";
 import { requireAdmin, requireStaff } from "@/lib/staff";
 import { unitIdsFromList, unitIdsFromRange } from "@/lib/units";
 import { db } from "@/lib/db";
-import { addDocument, createLot, holdLot, publishLot, releaseHold, replaceDocument, type UploadedFile } from "@/server/lots";
+import {
+  addDocument,
+  addUploadedDocument,
+  createLot,
+  holdLot,
+  publishLot,
+  releaseHold,
+  replaceDocument,
+  replaceWithUploadedDocument,
+  type UploadedFile,
+} from "@/server/lots";
 import { createProduct, updateProduct } from "@/server/products";
 import { markReviewed } from "@/server/reports";
 import type { Result } from "@/server/result";
@@ -88,6 +98,26 @@ export async function replaceDocumentAction(
 ): Promise<ActionState> {
   const staff = await requireStaff();
   const result = await replaceDocument(staff.email, documentId, text(formData, "reason"), await uploadedFile(formData));
+  return done(result, "New version uploaded.", `/admin/lots/${lotId}`);
+}
+
+/** Records a large document the browser already sent straight to storage. */
+export async function addUploadedDocumentAction(
+  lotId: string,
+  input: { type: string; title: string; storageKey: string },
+): Promise<ActionState> {
+  const staff = await requireStaff();
+  const result = await addUploadedDocument(staff.email, lotId, input, input.storageKey);
+  return done(result, "Document uploaded.", `/admin/lots/${lotId}`);
+}
+
+export async function replaceWithUploadedDocumentAction(
+  documentId: string,
+  lotId: string,
+  input: { reason: string; storageKey: string },
+): Promise<ActionState> {
+  const staff = await requireStaff();
+  const result = await replaceWithUploadedDocument(staff.email, documentId, input.reason, input.storageKey);
   return done(result, "New version uploaded.", `/admin/lots/${lotId}`);
 }
 
